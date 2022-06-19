@@ -1,0 +1,23 @@
+[package]
+name = "grammersthon"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+regex = "1.5"
+crossterm = "0.23"
+
+tokio = { version = "1.19", features = ["full"] }
+
+grammers-client = { git = "https://github.com/lonami/grammers.git", features = [ "markdown" ] }
+grammers-crypto = { git = "https://github.com/lonami/grammers.git" }
+grammers-session = { git = "https://github.com/lonami/grammers.git" }
+grammers-tl-types = { git = "https://github.com/lonami/grammers.git" }
+
+grammersthon-macro = { path = "../grammersthon-macro" }
+
+[[example]]
+name = "simple"
