@@ -1,11 +1,11 @@
 # grammersthon
 
-An attempt to turn Grammers into an user friendly framework.
+An attempt to turn Grammers into a user friendly framework.
 Inspired by bevy, rocket, actix-web.
 
 Grammers: https://github.com/Lonami/grammers
 
-## Installing:
+## Installing
 `Cargo.toml`:
 
 ```toml
