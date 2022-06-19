@@ -5,9 +5,16 @@ Inspired by bevy, rocket, actix-web.
 
 Grammers: https://github.com/Lonami/grammers
 
+## Installing:
+`Cargo.toml`:
+
+```toml
+grammersthon = { git = "https://github.com/Marekkon5/grammersthon.git" }
+```
+
 ## Example
 
-```
+```rs
 use std::error::Error;
 use grammersthon::{Grammersthon, HandlerResult, handler, h};
 use grammersthon::grammers_client::types::Message;
