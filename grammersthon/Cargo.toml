@@ -19,5 +19,5 @@ grammers-tl-types = { git = "https://github.com/lonami/grammers.git" }
 
 grammersthon-macro = { path = "../grammersthon-macro" }
 
-[[example]]
-name = "simple"
+[dev-dependencies]
+pretty_env_logger = "0.4"

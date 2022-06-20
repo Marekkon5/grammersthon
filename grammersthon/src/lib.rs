@@ -9,7 +9,7 @@ pub use grammers_session;
 pub use grammersthon_macro::handler;
 pub use crate::builder::GrammersthonBuilder;
 pub use crate::error::GrammersthonError;
-pub use crate::handler::HandlerResult;
+pub use crate::handler::{HandlerResult, HandlerFilter};
 
 mod error;
 mod builder;
@@ -45,13 +45,27 @@ impl Grammersthon {
     pub fn client(&self) -> Client {
         self.client.clone()
     }
-
+    
     /// Run infinite event loop
     pub async fn start_event_loop(&mut self) -> Result<(), GrammersthonError> {
         info!("Starting event loop");
         loop {
             while let Some(update) = self.client.next_update().await? {
-                self.handlers.handle(self.client.clone(), update, self.me.clone()).await?;
+                // Run handler in own task
+                let handlers = self.handlers.clone();
+                let client = self.client.clone();
+                let me = self.me.clone();
+                tokio::task::spawn(async move {
+                    match handlers.handle(client.clone(), update, me).await {
+                        Ok(_) => (),
+                        Err(e) => {
+                            if let Err(e) = (*handlers.error)(e, client).await {
+                                error!("Error occured while running error handler: {e}");
+                            }
+                        },
+                    }
+                });
+
             }
         }
     }

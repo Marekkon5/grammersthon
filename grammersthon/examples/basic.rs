@@ -1,16 +1,32 @@
+#[macro_use] extern crate log;
+
 use std::error::Error;
-use grammers_client::{types::{Media, media::Sticker, User, Message}, Client, InputMessage};
+use grammersthon::grammers_client::types::{Media, User, Message, Chat};
+use grammersthon::grammers_client::types::media::Sticker;
+use grammersthon::grammers_client::{Client, InputMessage};
 use grammersthon::{Grammersthon, HandlerResult, handler, h};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    Grammersthon::from_env()
+    std::env::set_var("RUST_LOG", "info");
+    pretty_env_logger::init();
+
+    // Login
+    let mut grammersthon = Grammersthon::from_env()
         .expect("Missing TG_ID or TG_HASH env variable")
         .interactive(true)
+        .session_file("session.session")?
         .connect()
-        .await?
+        .await?;
+
+    // Save session
+    grammersthon.client().session().save_to_file("session.session")?;
+
+    // Add handlers
+    grammersthon
         .add_handler(h!(with_sticker))
         .add_handler(h!(save_media))
+        .add_handler(h!(fn_handler_example))
         .fallback_handler(fallback)
         .start_event_loop()
         .await?;
@@ -21,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 /// Will handle only messages with Stickers
 #[handler(".*")]
 async fn with_sticker(_sticker: Sticker) -> HandlerResult {
-    println!("Message with Sticker received!");
+    info!("Message with Sticker received!");
     Ok(())
 }
 
@@ -32,8 +48,15 @@ async fn save_media(client: Client, me: User, media: Media) -> HandlerResult {
     Ok(())
 }
 
+/// Only handle messages of people with usernames
+#[handler(|m| matches!(m.chat(), Chat::User(u) if u.username().is_some() ))]
+async fn fn_handler_example(message: Message) -> HandlerResult {
+    info!("Message from user with username: {message:?}");
+    Ok(())
+}
+
 /// Fallback handler, no #[handler] needed
 async fn fallback(message: Message) -> HandlerResult {
-    println!("Unhandled message: {}", message.text());
+    info!("Unhandled message: {}", message.text());
     Ok(())
 }

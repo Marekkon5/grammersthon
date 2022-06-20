@@ -1,9 +1,12 @@
 use std::error::Error;
-use grammers_client::types::Message;
+use grammersthon::grammers_client::types::Message;
 use grammersthon::{Grammersthon, HandlerResult, handler, h};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    std::env::set_var("RUST_LOG", "info");
+    pretty_env_logger::init();
+    
     // Use `TG_ID` and `TG_HASH` env variables
     Grammersthon::from_env()
         .expect("Missing TG_ID or TG_HASH env variable")

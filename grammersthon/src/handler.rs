@@ -5,6 +5,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use grammers_client::types::media::{Document, Sticker};
 use grammers_client::{Update, Client};
 use grammers_client::types::{Message, Media, Photo, User};
@@ -14,7 +15,8 @@ use regex::Regex;
 use crate::{GrammersthonError, Grammersthon};
 
 pub type HandlerResult = Result<(), GrammersthonError>;
-pub type HandlerFn = dyn Fn(&HandlerData) -> Option<Pin<Box<dyn Future<Output = HandlerResult>>>>;
+type HandlerFn = dyn Fn(&HandlerData) -> Option<Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>>> + Send + Sync;
+type ErrorHandlerFn = dyn Fn(GrammersthonError, Client) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>> + Send + Sync;
 
 /// For registering handlers
 #[macro_export]
@@ -24,7 +26,7 @@ macro_rules! h {
     };
 }
 
-/// Default handler message
+/// Default fallback handler
 pub(crate) async fn default_fallback_handler(message: String) -> HandlerResult {
     warn!("Unhandled message: {message}");
     Ok(())
@@ -32,15 +34,13 @@ pub(crate) async fn default_fallback_handler(message: String) -> HandlerResult {
 
 impl Grammersthon {
     /// Register event handler
-    pub fn add_handler<F, A>(&mut self, handler: (&'static str, F)) -> &mut Self 
+    pub fn add_handler<F, A>(&mut self, handler: (HandlerFilter, F)) -> &mut Self 
     where
         F: Handler<A>,
         A: FromHandlerData + 'static
     {
-        let (pattern, handler) = handler;
-        // Unwrap because it is compile checked in handler macro
-        let pattern = Regex::new(pattern).unwrap();
-        self.handlers.add(pattern, Handlers::box_handler(handler));
+        let (filter, handler) = handler;
+        self.handlers.add(filter, Handlers::box_handler(handler));
         self
     }
 
@@ -53,18 +53,51 @@ impl Grammersthon {
         self.handlers.fallback = Handlers::box_handler(handler);
         self
     }
+
+    /// Register error handler
+    pub fn error_handler<H, F>(&mut self, handler: H) -> &mut Self 
+    where
+        H: Fn(GrammersthonError, Client) -> F + Send + Sync + 'static,
+        F: Future<Output = HandlerResult> + Send + Sync + 'static
+    {
+        self.handlers.error = Arc::new(Box::new(move |e, c| {
+            Box::pin(handler(e, c))
+        }));
+        self
+    }
 }
 
 /// All the registered handlers
+#[derive(Clone)]
 pub(crate) struct Handlers {
-    fallback: Box<HandlerFn>,
-    handlers: Vec<HandlerWrap>
+    fallback: Arc<Box<HandlerFn>>,
+    handlers: Vec<HandlerWrap>,
+    pub error: Arc<Box<ErrorHandlerFn>>,
+}
+
+/// Whether the handler should be executed or no
+#[derive(Clone)]
+pub enum HandlerFilter {
+    Regex(String),
+    Fn(Arc<Box<dyn Fn(&Message) -> bool + Send + Sync>>)
+}
+
+impl HandlerFilter {
+    /// Does the filter match 
+    pub fn is_match(&self, message: &Message) -> bool {
+        match self {
+            // Unwrap because regex is compile checked
+            HandlerFilter::Regex(r) => Regex::new(&r).unwrap().is_match(message.text()),
+            HandlerFilter::Fn(f) => (*f)(message),
+        }
+    }
 }
 
 /// Wrapper for handler with metadata
+#[derive(Clone)]
 pub(crate) struct HandlerWrap {
-    pub pattern: Regex,
-    pub handler: Box<HandlerFn>
+    pub filter: HandlerFilter,
+    pub handler: Arc<Box<HandlerFn>>
 }
 
 impl Handlers {
@@ -72,26 +105,31 @@ impl Handlers {
     pub(crate) fn new() -> Handlers {
         Handlers {
             handlers: vec![],
-            fallback: Self::box_handler(default_fallback_handler)
+            fallback: Self::box_handler(default_fallback_handler),
+            // Default error handler
+            error: Arc::new(Box::new(|e, __| { Box::pin(async move { 
+                error!("Unhandled error occured: {e}");
+                Ok(()) 
+            }) }))
         }
     }
 
     /// Box handler fn
-    fn box_handler<F, A>(handler: F) -> Box<HandlerFn>
+    fn box_handler<F, A>(handler: F) -> Arc<Box<HandlerFn>>
     where
         F: Handler<A>,
         A: FromHandlerData + 'static
     {
         // Wrap handler with calling function
-        let f = move |data: &HandlerData| -> Option<Pin<Box<dyn Future<Output = HandlerResult>>>> {
+        let f = move |data: &HandlerData| -> Option<Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>>> {
             Some(Box::pin(handler.call(A::from_data(data)?)))
         };
-        Box::new(f)
+        Arc::new(Box::new(f))
     }
 
     /// Register new handler
-    fn add(&mut self, pattern: Regex, handler: Box<HandlerFn>) {
-        self.handlers.push(HandlerWrap { pattern, handler });
+    fn add(&mut self, filter: HandlerFilter, handler: Arc<Box<HandlerFn>>) {
+        self.handlers.push(HandlerWrap { filter, handler });
     }
 
     /// Handle incoming update
@@ -105,17 +143,16 @@ impl Handlers {
         };
 
         // Arguments
-        let text = message.text().to_string();
         let data = HandlerData {
-            text: text.to_string(),
+            text: message.text().to_string(),
             client, 
-            message, 
+            message: message.clone(), 
             me
         };
 
         // Find handler
         for handler in &self.handlers {
-            if handler.pattern.is_match(&text) {
+            if handler.filter.is_match(&message) {
                 if let Some(f) = (*handler.handler)(&data) {
                     return f.await;
                 }
@@ -128,10 +165,12 @@ impl Handlers {
         }
         Err(GrammersthonError::MissingParameters("Fallback handle function parameter"))
     }
+
 }
 
 
 /// Should contain all the data for Handler argument
+#[derive(Debug, Clone)]
 pub struct HandlerData {
     client: Client,
     message: Message,
@@ -239,8 +278,8 @@ from_handler_data_impl! { A B C D E F G H }
 
 
 /// Trait of handler function
-pub trait Handler<Args>: Clone + 'static {
-    type Future: Future<Output = HandlerResult>;
+pub trait Handler<Args>: Send + Sync + Clone + 'static {
+    type Future: Future<Output = HandlerResult> + Send + Sync;
 
     fn call(&self, args: Args) -> Self::Future;
 }
@@ -250,8 +289,8 @@ pub trait Handler<Args>: Clone + 'static {
 macro_rules! handler_fn({ $($param:ident)* } => {
     impl<Func, Fut, $($param,)*> Handler<($($param,)*)> for Func
     where 
-        Func: Fn($($param),*) -> Fut + Clone + 'static,
-        Fut: Future<Output = HandlerResult>
+        Func: Fn($($param),*) -> Fut + Send + Sync + Clone + 'static,
+        Fut: Future<Output = HandlerResult> + Send + Sync
     {
         type Future = Fut;
 
