@@ -11,6 +11,7 @@ use grammers_client::{Update, Client};
 use grammers_client::types::{Message, Media, Photo, User};
 use grammers_tl_types::types::{MessageReplyHeader, MessageFwdHeader};
 use regex::Regex;
+use trait_bound_typemap::{CloneSendSyncTypeMap, TypeMapKey, TypeMap};
 
 use crate::{GrammersthonError, Grammersthon};
 
@@ -133,7 +134,7 @@ impl Handlers {
     }
 
     /// Handle incoming update
-    pub(crate) async fn handle(&self, client: Client, update: Update, me: User) -> HandlerResult {
+    pub(crate) async fn handle(&self, client: Client, update: Update, me: User, data: CloneSendSyncTypeMap) -> HandlerResult {
         let message = match update {
             Update::NewMessage(m) => m,
             u => {
@@ -146,6 +147,7 @@ impl Handlers {
         let data = HandlerData {
             text: message.text().to_string(),
             client, 
+            data,
             message: message.clone(), 
             me
         };
@@ -170,12 +172,28 @@ impl Handlers {
 
 
 /// Should contain all the data for Handler argument
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct HandlerData {
     client: Client,
     message: Message,
     text: String,
-    me: User
+    me: User,
+    data: CloneSendSyncTypeMap
+}
+
+/// Wrapper for querying user data
+#[derive(Clone)]
+pub struct Data<T: Send + Sync + Clone>(pub T);
+
+impl<T: Send + Sync + Clone> Data<T> {
+    /// Get inner value
+    pub fn inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T: Send + Sync + Clone + 'static> TypeMapKey for Data<T> {
+    type Value = T;
 }
 
 /// For generating handlers
@@ -248,6 +266,13 @@ impl FromHandlerData for User {
         Some(data.me.clone())
     }
 }
+
+impl<T: Send + Sync + Clone + 'static> FromHandlerData for Data<T> {
+    fn from_data(data: &HandlerData) -> Option<Self> {
+        data.data.get::<Data<T>>().map(|t| Data(t.clone()))
+    }
+}
+
 
 /// Generate FromHandlerData for n-tuple of FromHandlerData:
 /// ```

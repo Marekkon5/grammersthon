@@ -9,6 +9,7 @@ edition = "2021"
 log = "0.4"
 regex = "1.5"
 crossterm = "0.23"
+trait-bound-typemap = "0.3"
 
 tokio = { version = "1.19", features = ["full"] }
 
