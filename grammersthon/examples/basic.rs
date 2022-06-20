@@ -5,6 +5,7 @@ use grammersthon::grammers_client::types::{Media, User, Message, Chat};
 use grammersthon::grammers_client::types::media::Sticker;
 use grammersthon::grammers_client::{Client, InputMessage};
 use grammersthon::{Grammersthon, HandlerResult, handler, h};
+use regex::Regex;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -24,10 +25,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Add handlers
     grammersthon
-        .add_handler(h!(with_sticker))
+        // Add pattern mutator which will prefix `/` to every pattern
+        .pattern_mutator(|pattern| Regex::new(&format!("/{pattern}")).unwrap())
+
+        // Register individual handlers
+        .add_handler(h!(ping))
         .add_handler(h!(save_media))
+        .add_handler(h!(with_sticker))
         .add_handler(h!(fn_handler_example))
+
+        // Fallback handler for unhandled messages
         .fallback_handler(fallback)
+
+        // Start
         .start_event_loop()
         .await?;
 
@@ -35,14 +45,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// Will handle only messages with Stickers
-#[handler(".*")]
+#[handler(|_| true)]
 async fn with_sticker(_sticker: Sticker) -> HandlerResult {
     info!("Message with Sticker received!");
     Ok(())
 }
 
+/// Will reply to any message with the content `/ping`
+#[handler("ping$")]
+async fn ping(message: Message) -> HandlerResult {
+    message.reply("Pong!").await?;
+    Ok(())
+}
+
 /// Will reupload any message with Media and `save` as text to Saved Messages
-#[handler("^save$")]
+#[handler("save$")]
 async fn save_media(client: Client, me: User, media: Media) -> HandlerResult {
     client.send_message(me, InputMessage::text("Saved!").copy_media(&media)).await?;
     Ok(())

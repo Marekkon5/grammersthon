@@ -27,6 +27,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 #[derive(Debug, Clone, Default)]
 struct MyConfig {
+    #[allow(dead_code)]
     pub example: bool
 }
 

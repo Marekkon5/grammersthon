@@ -13,7 +13,7 @@ trait-bound-typemap = "0.3"
 
 tokio = { version = "1.19", features = ["full"] }
 
-grammers-client = { git = "https://github.com/lonami/grammers.git", features = [ "markdown" ] }
+grammers-client = { git = "https://github.com/lonami/grammers.git" }
 grammers-crypto = { git = "https://github.com/lonami/grammers.git" }
 grammers-session = { git = "https://github.com/lonami/grammers.git" }
 grammers-tl-types = { git = "https://github.com/lonami/grammers.git" }
@@ -22,3 +22,8 @@ grammersthon-macro = { path = "../grammersthon-macro" }
 
 [dev-dependencies]
 pretty_env_logger = "0.4"
+
+[features]
+default = ["markdown"]
+markdown = ["grammers-client/markdown"]
+html = ["grammers-client/html"]

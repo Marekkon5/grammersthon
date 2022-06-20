@@ -18,6 +18,7 @@ use crate::{GrammersthonError, Grammersthon};
 pub type HandlerResult = Result<(), GrammersthonError>;
 type HandlerFn = dyn Fn(&HandlerData) -> Option<Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>>> + Send + Sync;
 type ErrorHandlerFn = dyn Fn(GrammersthonError, Client) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>> + Send + Sync;
+type PatternMutatorFn = dyn Fn(&str) -> Regex + Send + Sync;
 
 /// For registering handlers
 #[macro_export]
@@ -66,6 +67,15 @@ impl Grammersthon {
         }));
         self
     }
+
+    /// Register pattern mutator function
+    pub fn pattern_mutator<M>(&mut self, mutator: M) -> &mut Self 
+    where
+        M: (Fn(&str) -> Regex) + Send + Sync + 'static
+    {
+        self.handlers.pattern_mutator = Some(Arc::new(Box::new(mutator)));
+        self
+    }
 }
 
 /// All the registered handlers
@@ -74,6 +84,7 @@ pub(crate) struct Handlers {
     fallback: Arc<Box<HandlerFn>>,
     handlers: Vec<HandlerWrap>,
     pub error: Arc<Box<ErrorHandlerFn>>,
+    pattern_mutator: Option<Arc<Box<PatternMutatorFn>>>
 }
 
 /// Whether the handler should be executed or no
@@ -85,10 +96,15 @@ pub enum HandlerFilter {
 
 impl HandlerFilter {
     /// Does the filter match 
-    pub fn is_match(&self, message: &Message) -> bool {
+    pub fn is_match(&self, message: &Message, mutator: &Option<Arc<Box<PatternMutatorFn>>>) -> bool {
         match self {
             // Unwrap because regex is compile checked
-            HandlerFilter::Regex(r) => Regex::new(&r).unwrap().is_match(message.text()),
+            HandlerFilter::Regex(r) => {
+                match mutator {
+                    Some(mutator) => (*mutator)(r).is_match(message.text()),
+                    None => Regex::new(&r).unwrap().is_match(message.text()),
+                }
+            },
             HandlerFilter::Fn(f) => (*f)(message),
         }
     }
@@ -107,6 +123,7 @@ impl Handlers {
         Handlers {
             handlers: vec![],
             fallback: Self::box_handler(default_fallback_handler),
+            pattern_mutator: None,
             // Default error handler
             error: Arc::new(Box::new(|e, __| { Box::pin(async move { 
                 error!("Unhandled error occured: {e}");
@@ -154,7 +171,7 @@ impl Handlers {
 
         // Find handler
         for handler in &self.handlers {
-            if handler.filter.is_match(&message) {
+            if handler.filter.is_match(&message, &self.pattern_mutator) {
                 if let Some(f) = (*handler.handler)(&data) {
                     return f.await;
                 }
