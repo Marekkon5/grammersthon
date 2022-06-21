@@ -191,11 +191,11 @@ impl Handlers {
 /// Should contain all the data for Handler argument
 #[derive(Clone)]
 pub struct HandlerData {
-    client: Client,
-    message: Message,
-    text: String,
-    me: User,
-    data: CloneSendSyncTypeMap
+    pub client: Client,
+    pub message: Message,
+    pub text: String,
+    pub me: User,
+    pub data: CloneSendSyncTypeMap
 }
 
 /// Wrapper for querying user data
@@ -213,9 +213,9 @@ impl<T: Send + Sync + Clone + 'static> TypeMapKey for Data<T> {
     type Value = T;
 }
 
-/// For generating handlers
-pub trait FromHandlerData {
-    fn from_data(data: &HandlerData) -> Option<Self> where Self: Sized;
+/// For generating handler function parameters
+pub trait FromHandlerData: where Self: Sized {
+    fn from_data(data: &HandlerData) -> Option<Self>;
 }
 
 impl FromHandlerData for Client {

@@ -10,7 +10,8 @@ pub enum GrammersthonError {
     SignInError(SignInError),
     InvocationError(InvocationError),
     Unimplemented,
-    Error(Box<dyn std::error::Error + Send + Sync>)
+    Error(Box<dyn std::error::Error + Send + Sync>),
+    Parse(String, Option<Box<dyn std::error::Error + Send + Sync>>)
 }
 
 impl fmt::Display for GrammersthonError {
@@ -23,6 +24,11 @@ impl fmt::Display for GrammersthonError {
             GrammersthonError::InvocationError(e) => write!(f, "Other error: {e}"),
             GrammersthonError::Unimplemented => write!(f, "Unimplemented"),
             GrammersthonError::Error(e) => write!(f, "{e}"),
+            GrammersthonError::Parse(value, e) => match e {
+                Some(e) => write!(f, "Error parsing {value}: {e}"),
+                None => write!(f, "Error parsing {value}")
+            },
+            
         }
     }
 }

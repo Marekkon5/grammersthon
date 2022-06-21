@@ -7,11 +7,13 @@ use handler::Handlers;
 
 pub use grammers_client;
 pub use grammers_session;
-pub use grammersthon_macro::handler;
+pub use grammersthon_macro::{handler, FromArgs};
 pub use crate::builder::GrammersthonBuilder;
 pub use crate::error::GrammersthonError;
-pub use crate::handler::{HandlerResult, HandlerFilter, Data};
+pub use crate::handler::{HandlerResult, HandlerFilter, Data, HandlerData, FromHandlerData};
+pub use crate::args::{Args, FromArgs, RawArgs};
 
+mod args;
 mod error;
 mod builder;
 mod handler;
@@ -47,6 +49,11 @@ impl Grammersthon {
     /// Get a client handle
     pub fn client(&self) -> Client {
         self.client.clone()
+    }
+
+    /// Get own user
+    pub fn me(&self) -> &User {
+        &self.me
     }
 
     /// Add custom data to use in handlers
