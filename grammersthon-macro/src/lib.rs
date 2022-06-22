@@ -24,7 +24,9 @@ extern crate proc_macro;
 /// 
 /// ### Combined:
 /// 
+/// ```
 /// #[handler("regex", |m, h| true)]
+/// ```
 #[proc_macro_attribute]
 pub fn handler(metadata: TokenStream, input: TokenStream) -> TokenStream {
     let filters = parse_macro_input!(metadata as HandlerFilters);
