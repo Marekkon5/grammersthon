@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use grammers_client::types::media::{Document, Sticker};
 use grammers_client::{Update, Client};
-use grammers_client::types::{Message, Media, Photo, User};
+use grammers_client::types::{Message, Media, Photo, User, Chat, Group, Channel};
 use grammers_tl_types::types::{MessageReplyHeader, MessageFwdHeader};
 use regex::Regex;
 use trait_bound_typemap::{CloneSendSyncTypeMap, TypeMapKey, TypeMap};
@@ -17,8 +17,10 @@ use crate::{GrammersthonError, Grammersthon};
 
 pub type HandlerResult = Result<(), GrammersthonError>;
 type HandlerFn = dyn Fn(&HandlerData) -> Option<Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>>> + Send + Sync;
-type ErrorHandlerFn = dyn Fn(GrammersthonError, Client) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>> + Send + Sync;
+type ErrorHandlerFn = dyn Fn(GrammersthonError, Client, Update) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>> + Send + Sync;
 type PatternMutatorFn = dyn Fn(&str) -> Regex + Send + Sync;
+type InterceptorFn = dyn Fn(HandlerData) -> Pin<Box<dyn Future<Output = Result<HandlerData, GrammersthonError>> + Send + Sync>> + Send + Sync;
+type FallbackFn = dyn Fn(Client, Update) -> Pin<Box<dyn Future<Output = HandlerResult> + Send + Sync>> + Send + Sync;
 
 /// For registering handlers
 #[macro_export]
@@ -29,41 +31,54 @@ macro_rules! h {
 }
 
 /// Default fallback handler
-pub(crate) async fn default_fallback_handler(message: String) -> HandlerResult {
+pub(crate) async fn default_message_fallback_handler(message: String) -> HandlerResult {
     warn!("Unhandled message: {message}");
     Ok(())
 }
 
 impl Grammersthon {
     /// Register event handler
-    pub fn add_handler<F, A>(&mut self, handler: (HandlerFilter, F)) -> &mut Self 
+    pub fn add_handler<F, A>(&mut self, handler: (Vec<HandlerFilter>, F)) -> &mut Self 
     where
         F: Handler<A>,
         A: FromHandlerData + 'static
     {
-        let (filter, handler) = handler;
-        self.handlers.add(filter, Handlers::box_handler(handler));
+        let (filters, handler) = handler;
+        self.handlers.add(filters, Handlers::box_handler(handler));
         self
     }
 
-    /// Register fallback handler function
-    pub fn fallback_handler<F, A>(&mut self, handler: F) -> &mut Self
+    /// Register message fallback handler function
+    /// Will be called if no NewMessage handler will be matched
+    pub fn message_fallback_handler<F, A>(&mut self, handler: F) -> &mut Self
     where
         F: Handler<A>,
         A: FromHandlerData + 'static
     {
-        self.handlers.fallback = Handlers::box_handler(handler);
+        self.handlers.message_fallback = Handlers::box_handler(handler);
+        self
+    }
+
+    /// Register handler for all events other than NewMessage
+    pub fn fallback_handler<H, F>(&mut self, handler: H) -> &mut Self 
+    where
+        H: (Fn(Client, Update) -> F) + Send + Sync + 'static,
+        F: Future<Output = HandlerResult> + Send + Sync + 'static
+    {
+        self.handlers.fallback = Arc::new(Box::new(move |c, u| {
+            Box::pin(handler(c, u))
+        }));
         self
     }
 
     /// Register error handler
     pub fn error_handler<H, F>(&mut self, handler: H) -> &mut Self 
     where
-        H: Fn(GrammersthonError, Client) -> F + Send + Sync + 'static,
+        H: Fn(GrammersthonError, Client, Update) -> F + Send + Sync + 'static,
         F: Future<Output = HandlerResult> + Send + Sync + 'static
     {
-        self.handlers.error = Arc::new(Box::new(move |e, c| {
-            Box::pin(handler(e, c))
+        self.handlers.error = Arc::new(Box::new(move |e, c, u| {
+            Box::pin(handler(e, c, u))
         }));
         self
     }
@@ -76,27 +91,41 @@ impl Grammersthon {
         self.handlers.pattern_mutator = Some(Arc::new(Box::new(mutator)));
         self
     }
+
+    /// Register interceptor called before handling message
+    pub fn interceptor<I, F>(&mut self, interceptor: I) -> &mut Self
+    where
+        I: (Fn(HandlerData) -> F) + Send + Sync + 'static,
+        F: Future<Output = Result<HandlerData, GrammersthonError>> + Send + Sync + 'static
+    {
+        self.handlers.interceptor = Some(Arc::new(Box::new(move |d| {
+            Box::pin(interceptor(d))
+        })));
+        self
+    }
 }
 
 /// All the registered handlers
 #[derive(Clone)]
 pub(crate) struct Handlers {
-    fallback: Arc<Box<HandlerFn>>,
+    message_fallback: Arc<Box<HandlerFn>>,
+    fallback: Arc<Box<FallbackFn>>,
     handlers: Vec<HandlerWrap>,
     pub error: Arc<Box<ErrorHandlerFn>>,
-    pattern_mutator: Option<Arc<Box<PatternMutatorFn>>>
+    pattern_mutator: Option<Arc<Box<PatternMutatorFn>>>,
+    interceptor: Option<Arc<Box<InterceptorFn>>>,
 }
 
 /// Whether the handler should be executed or no
 #[derive(Clone)]
 pub enum HandlerFilter {
     Regex(String),
-    Fn(Arc<Box<dyn Fn(&Message) -> bool + Send + Sync>>)
+    Fn(Arc<Box<dyn Fn(&Message, &HandlerData) -> bool + Send + Sync>>)
 }
 
 impl HandlerFilter {
     /// Does the filter match 
-    pub fn is_match(&self, message: &Message, mutator: &Option<Arc<Box<PatternMutatorFn>>>) -> bool {
+    pub fn is_match(&self, message: &Message, mutator: &Option<Arc<Box<PatternMutatorFn>>>, data: &HandlerData) -> bool {
         match self {
             // Unwrap because regex is compile checked
             HandlerFilter::Regex(r) => {
@@ -105,7 +134,7 @@ impl HandlerFilter {
                     None => Regex::new(&r).unwrap().is_match(message.text()),
                 }
             },
-            HandlerFilter::Fn(f) => (*f)(message),
+            HandlerFilter::Fn(f) => (*f)(message, data),
         }
     }
 }
@@ -113,7 +142,7 @@ impl HandlerFilter {
 /// Wrapper for handler with metadata
 #[derive(Clone)]
 pub(crate) struct HandlerWrap {
-    pub filter: HandlerFilter,
+    pub filters: Vec<HandlerFilter>,
     pub handler: Arc<Box<HandlerFn>>
 }
 
@@ -122,13 +151,19 @@ impl Handlers {
     pub(crate) fn new() -> Handlers {
         Handlers {
             handlers: vec![],
-            fallback: Self::box_handler(default_fallback_handler),
+            message_fallback: Self::box_handler(default_message_fallback_handler),
             pattern_mutator: None,
+            interceptor: None,
             // Default error handler
-            error: Arc::new(Box::new(|e, __| { Box::pin(async move { 
+            error: Arc::new(Box::new(|e, __, ___| { Box::pin(async move { 
                 error!("Unhandled error occured: {e}");
                 Ok(()) 
-            }) }))
+            }) })),
+            // Default update fallback
+            fallback: Arc::new(Box::new(|_, u| { Box::pin(async move {
+                error!("Unhandled Update: {u:?}");
+                Ok(())
+            }) })),
         }
     }
 
@@ -146,32 +181,32 @@ impl Handlers {
     }
 
     /// Register new handler
-    fn add(&mut self, filter: HandlerFilter, handler: Arc<Box<HandlerFn>>) {
-        self.handlers.push(HandlerWrap { filter, handler });
+    fn add(&mut self, filters: Vec<HandlerFilter>, handler: Arc<Box<HandlerFn>>) {
+        self.handlers.push(HandlerWrap { filters, handler });
     }
 
     /// Handle incoming update
     pub(crate) async fn handle(&self, client: Client, update: Update, me: User, data: CloneSendSyncTypeMap) -> HandlerResult {
         let message = match update {
             Update::NewMessage(m) => m,
-            u => {
-                error!("Not implemented update type: {u:?}");
-                return Err(GrammersthonError::Unimplemented);
+            update => {
+                return (*self.fallback)(client, update).await;
             },
         };
 
         // Arguments
-        let data = HandlerData {
-            text: message.text().to_string(),
-            client, 
-            data,
-            message: message.clone(), 
-            me
-        };
+        let mut data = HandlerData { client, data, me, message: message.clone() };
+
+        // Run interceptor
+        if let Some(interceptor) = &self.interceptor {
+            data = (*interceptor)(data).await?;
+        }
 
         // Find handler
         for handler in &self.handlers {
-            if handler.filter.is_match(&message, &self.pattern_mutator) {
+            // Run all filters
+            let matched = handler.filters.iter().all(|f| f.is_match(&message, &self.pattern_mutator, &data));
+            if matched {
                 if let Some(f) = (*handler.handler)(&data) {
                     return f.await;
                 }
@@ -179,7 +214,7 @@ impl Handlers {
         }
 
         // Run fallback
-        if let Some(f) = (*self.fallback)(&data) {
+        if let Some(f) = (*self.message_fallback)(&data) {
             return f.await;
         }
         Err(GrammersthonError::MissingParameters("Fallback handle function parameter"))
@@ -193,9 +228,15 @@ impl Handlers {
 pub struct HandlerData {
     pub client: Client,
     pub message: Message,
-    pub text: String,
     pub me: User,
     pub data: CloneSendSyncTypeMap
+}
+
+impl HandlerData {
+    /// Get any data added with .add_data
+    pub fn data<T: Clone + Send + Sync + 'static>(&self) -> Option<T> {
+        self.data.get::<Data<T>>().map(|t| t.clone())
+    }
 }
 
 /// Wrapper for querying user data
@@ -212,6 +253,10 @@ impl<T: Send + Sync + Clone> Data<T> {
 impl<T: Send + Sync + Clone + 'static> TypeMapKey for Data<T> {
     type Value = T;
 }
+
+/// For querying self from args
+#[derive(Debug, Clone)]
+pub struct Me(pub User);
 
 /// For generating handler function parameters
 pub trait FromHandlerData: where Self: Sized {
@@ -232,7 +277,7 @@ impl FromHandlerData for Message {
 
 impl FromHandlerData for String {
     fn from_data(data: &HandlerData) -> Option<Self> {
-        Some(data.text.clone())
+        Some(data.message.text().to_string())
     }
 }
 
@@ -278,15 +323,51 @@ impl FromHandlerData for MessageFwdHeader {
     }
 }
 
+impl FromHandlerData for Chat {
+    fn from_data(data: &HandlerData) -> Option<Self> {
+        Some(data.message.chat())
+    }
+}
+
 impl FromHandlerData for User {
     fn from_data(data: &HandlerData) -> Option<Self> {
-        Some(data.me.clone())
+        match data.message.chat() {
+            Chat::User(u) => Some(u),
+            Chat::Group(_) => None,
+            Chat::Channel(_) => None,
+        }
+    }
+}
+
+impl FromHandlerData for Group {
+    fn from_data(data: &HandlerData) -> Option<Self> {
+        match data.message.chat() {
+            Chat::User(_) => None,
+            Chat::Group(g) => Some(g),
+            Chat::Channel(_) => None,
+        }
+    }
+}
+
+impl FromHandlerData for Channel {
+    fn from_data(data: &HandlerData) -> Option<Self> {
+        match data.message.chat() {
+            Chat::User(_) => None,
+            Chat::Group(_) => None,
+            Chat::Channel(c) => Some(c),
+        }
     }
 }
 
 impl<T: Send + Sync + Clone + 'static> FromHandlerData for Data<T> {
     fn from_data(data: &HandlerData) -> Option<Self> {
         data.data.get::<Data<T>>().map(|t| Data(t.clone()))
+    }
+}
+
+impl FromHandlerData for Me {
+    fn from_data(data: &HandlerData) -> Option<Self> {
+        Some(Me(data.me.clone()))
     }
 }
 

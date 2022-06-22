@@ -10,7 +10,7 @@ pub use grammers_session;
 pub use grammersthon_macro::{handler, FromArgs};
 pub use crate::builder::GrammersthonBuilder;
 pub use crate::error::GrammersthonError;
-pub use crate::handler::{HandlerResult, HandlerFilter, Data, HandlerData, FromHandlerData};
+pub use crate::handler::{HandlerResult, HandlerFilter, Data, HandlerData, FromHandlerData, Me};
 pub use crate::args::{Args, FromArgs, RawArgs};
 
 mod args;
@@ -73,16 +73,15 @@ impl Grammersthon {
                 let me = self.me.clone();
                 let data = self.data.clone();
                 tokio::task::spawn(async move {
-                    match handlers.handle(client.clone(), update, me, data).await {
+                    match handlers.handle(client.clone(), update.clone(), me, data).await {
                         Ok(_) => (),
                         Err(e) => {
-                            if let Err(e) = (*handlers.error)(e, client).await {
+                            if let Err(e) = (*handlers.error)(e, client, update).await {
                                 error!("Error occured while running error handler: {e}");
                             }
                         },
                     }
                 });
-
             }
         }
     }

@@ -1,22 +1,44 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use regex::Regex;
-use syn::{parse_macro_input, ItemFn, Result, Lit, ExprClosure, DeriveInput, Data, FieldsUnnamed, Ident, Fields, FieldsNamed, DataEnum, Attribute};
+use syn::punctuated::Punctuated;
+use syn::{parse_macro_input, ItemFn, Result, Lit, ExprClosure, DeriveInput, Data, FieldsUnnamed, Ident, Fields, FieldsNamed, DataEnum, Attribute, Token};
 use syn::parse::{ParseStream, Parse};
 
 extern crate proc_macro;
 
-/// Handler function, usage:
-/// `#[handler("regex_pattern")]`
+/// Convert function into a handler function
+/// ## Usage:
+/// 
+/// ### Single Regex pattern:
+/// ```
+/// #[handler("regex_pattern")]
+/// ```
+/// 
+/// ### Single function:
+/// `m` is `&Message`
+/// `h` is`&HandlerData`
+/// ```
+/// #[handler(|m, h| true)]
+/// ```
+/// 
+/// ### Combined:
+/// 
+/// #[handler("regex", |m, h| true)]
 #[proc_macro_attribute]
 pub fn handler(metadata: TokenStream, input: TokenStream) -> TokenStream {
-    let filter = parse_macro_input!(metadata as HandlerFilter);
+    let filters = parse_macro_input!(metadata as HandlerFilters);
     let input_fn = parse_macro_input!(input as ItemFn);
 
-    let filter = match filter {
-        HandlerFilter::Regex(r) => quote! { ::grammersthon::HandlerFilter::Regex(#r.to_string()) },
-        HandlerFilter::Fn(f) => quote! { ::grammersthon::HandlerFilter::Fn(::std::sync::Arc::new(::std::boxed::Box::new(#f))) },
-    };
+    // Generate filters code
+    let mut filters_code = vec![];
+    for filter in filters.0 {
+        let code = match filter {
+            HandlerFilter::Regex(r) => quote! { ::grammersthon::HandlerFilter::Regex(#r.to_string()) },
+            HandlerFilter::Fn(f) => quote! { ::grammersthon::HandlerFilter::Fn(::std::sync::Arc::new(::std::boxed::Box::new(#f))) },
+        };
+        filters_code.push(code);
+    }
 
     // Function name
     let ident = input_fn.sig.ident.clone();
@@ -29,13 +51,22 @@ pub fn handler(metadata: TokenStream, input: TokenStream) -> TokenStream {
 
         impl #ident {
             #[allow(non_snake_case, unreachable_patterns, unreachable_code)]
-            fn info() -> ::grammersthon::HandlerFilter {
-                #filter
+            fn info() -> ::std::vec::Vec<::grammersthon::HandlerFilter> {
+                ::std::vec![#(#filters_code),*]
             }
         }
     };
 
     TokenStream::from(out)
+}
+
+struct HandlerFilters(Vec<HandlerFilter>);
+
+impl Parse for HandlerFilters {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let filters = Punctuated::<HandlerFilter, Token![,]>::parse_separated_nonempty(input)?;
+        Ok(HandlerFilters(filters.into_iter().collect()))
+    }
 }
 
 enum HandlerFilter {

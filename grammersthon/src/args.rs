@@ -9,8 +9,17 @@ pub struct Args<A: FromArgs>(pub A);
 
 impl<A: FromArgs> FromHandlerData for Args<A> {
     fn from_data(data: &HandlerData) -> Option<Self> {
-        let i = data.text.find(" ")?;
-        Some(Args(A::parse_arg(&data.text[i..]).ok()?))
+        data.args::<A>().map(|a| Args(a)).ok()
+    }
+}
+
+impl HandlerData {
+    /// Parse args from message
+    pub fn args<A: FromArgs>(&self) -> Result<A, GrammersthonError> {
+        match self.message.text().find(" ") {
+            Some(i) => A::parse_arg(&self.message.text()[i..]),
+            None => Err(GrammersthonError::Parse("Missing arguments".to_string(), None))
+        }
     }
 }
 
@@ -61,8 +70,8 @@ impl FromArgs for RawArgs {
 
 impl FromHandlerData for RawArgs {
     fn from_data(data: &HandlerData) -> Option<Self> {
-        match data.text.find(" ") {
-            Some(i) => RawArgs::parse_arg(&data.text[i..]).ok(),
+        match data.message.text().find(" ") {
+            Some(i) => RawArgs::parse_arg(&data.message.text()[i..]).ok(),
             None => Some(RawArgs::default())
         }
     }

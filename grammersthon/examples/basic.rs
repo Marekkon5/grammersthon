@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .add_handler(h!(fn_handler_example))
 
         // Fallback handler for unhandled messages
-        .fallback_handler(fallback)
+        .message_fallback_handler(fallback)
 
         // Start
         .start_event_loop()
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 
 /// Will handle only messages with Stickers
-#[handler(|_| true)]
+#[handler(|_, __| true)]
 async fn with_sticker(_sticker: Sticker) -> HandlerResult {
     info!("Message with Sticker received!");
     Ok(())
@@ -66,9 +66,9 @@ async fn save_media(client: Client, me: User, media: Media) -> HandlerResult {
 }
 
 /// Only handle messages of people with usernames
-#[handler(|m| matches!(m.chat(), Chat::User(u) if u.username().is_some() ))]
-async fn fn_handler_example(message: Message) -> HandlerResult {
-    info!("Message from user with username: {message:?}");
+#[handler("username$", |m, _| matches!(m.chat(), Chat::User(u) if u.username().is_some() ))]
+async fn fn_handler_example(message: Message, user: User) -> HandlerResult {
+    message.reply(format!("Your username: {}", user.username().unwrap())).await?;
     Ok(())
 }
 
