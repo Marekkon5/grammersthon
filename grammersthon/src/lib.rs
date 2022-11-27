@@ -7,6 +7,7 @@ use handler::Handlers;
 
 pub use grammers_client;
 pub use grammers_session;
+pub use grammers_tl_types;
 pub use grammersthon_macro::{handler, FromArgs};
 pub use crate::builder::GrammersthonBuilder;
 pub use crate::error::GrammersthonError;
@@ -37,7 +38,7 @@ impl Grammersthon {
     }
 
     /// Create new instance from client
-    pub async fn from_client(mut client: Client) -> Result<Grammersthon, GrammersthonError> {
+    pub async fn from_client(client: Client) -> Result<Grammersthon, GrammersthonError> {
         Ok(Grammersthon {
             me: client.get_me().await?,
             client,

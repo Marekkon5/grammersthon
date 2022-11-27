@@ -105,7 +105,7 @@ impl GrammersthonBuilder {
 
     /// Build the client and try to connect
     pub async fn connect(mut self) -> Result<Grammersthon, GrammersthonError> {
-        let mut client = Client::connect(Config {
+        let client = Client::connect(Config {
             session: self.session,
             api_id: self.api_id,
             api_hash: self.api_hash.clone(),
