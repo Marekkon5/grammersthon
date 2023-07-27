@@ -7,11 +7,11 @@ edition = "2021"
 
 [dependencies]
 log = "0.4"
-regex = "1.5"
-crossterm = "0.23"
+regex = "1.9"
+crossterm = "0.26"
 trait-bound-typemap = "0.3"
 
-tokio = { version = "1.19", features = ["full"] }
+tokio = { version = "1.29", features = ["full"] }
 
 grammers-client = { git = "https://github.com/lonami/grammers.git" }
 grammers-crypto = { git = "https://github.com/lonami/grammers.git" }
@@ -21,9 +21,10 @@ grammers-tl-types = { git = "https://github.com/lonami/grammers.git" }
 grammersthon-macro = { path = "../grammersthon-macro" }
 
 [dev-dependencies]
-pretty_env_logger = "0.4"
+pretty_env_logger = "0.5"
 
 [features]
 default = ["markdown"]
 markdown = ["grammers-client/markdown"]
 html = ["grammers-client/html"]
+unstable-raw = ["grammers-client/unstable_raw"]
