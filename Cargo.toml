@@ -1,3 +1,4 @@
 [workspace]
+resolver = "2"
 members = [ "grammersthon", "grammersthon-macro" ]
 exclude = [ "grammers" ]

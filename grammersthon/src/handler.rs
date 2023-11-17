@@ -9,7 +9,7 @@ use std::sync::Arc;
 use grammers_client::types::media::{Document, Sticker};
 use grammers_client::{Update, Client};
 use grammers_client::types::{Message, Media, Photo, User, Chat, Group, Channel};
-use grammers_tl_types::types::{MessageReplyHeader, MessageFwdHeader};
+use grammers_tl_types::types::{MessageReplyHeader, MessageFwdHeader, MessageReplyStoryHeader};
 use regex::Regex;
 use trait_bound_typemap::{CloneSendSyncTypeMap, TypeMapKey, TypeMap};
 
@@ -313,7 +313,19 @@ impl FromHandlerData for Sticker {
 
 impl FromHandlerData for MessageReplyHeader {
     fn from_data(data: &HandlerData) -> Option<Self> {
-        data.message.reply_header().map(|h| h.into())
+        data.message.reply_header().map(|h| match h {
+            grammers_tl_types::enums::MessageReplyHeader::Header(h) => Some(h),
+            grammers_tl_types::enums::MessageReplyHeader::MessageReplyStoryHeader(_) => None,
+        }).flatten()
+    }
+}
+
+impl FromHandlerData for MessageReplyStoryHeader {
+    fn from_data(data: &HandlerData) -> Option<Self> {
+        data.message.reply_header().map(|h| match h {
+            grammers_tl_types::enums::MessageReplyHeader::Header(_) => None,
+            grammers_tl_types::enums::MessageReplyHeader::MessageReplyStoryHeader(h) => Some(h),
+        }).flatten()
     }
 }
 

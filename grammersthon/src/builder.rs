@@ -132,7 +132,7 @@ impl GrammersthonBuilder {
 
         // Login using bot token
         if let Some(token) = self.bot_token {
-            client.bot_sign_in(&token, self.api_id, &self.api_hash).await?;
+            client.bot_sign_in(&token).await?;
             return Grammersthon::from_client(client).await;
         }
 
@@ -142,7 +142,7 @@ impl GrammersthonBuilder {
         }
 
         // Interactive user login
-        let token = client.request_login_code(self.phone.as_ref().unwrap(), self.api_id, &self.api_hash).await?;
+        let token = client.request_login_code(self.phone.as_ref().unwrap()).await?;
         let code = Self::prompt("Enter the code you received: ", false).await?;
         match client.sign_in(&token, &code).await {
             Ok(_) => Grammersthon::from_client(client).await,
