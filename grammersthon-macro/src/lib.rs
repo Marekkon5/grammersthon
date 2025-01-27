@@ -53,7 +53,7 @@ pub fn handler(metadata: TokenStream, input: TokenStream) -> TokenStream {
 
         impl #ident {
             #[allow(non_snake_case, unreachable_patterns, unreachable_code)]
-            fn info() -> ::std::vec::Vec<::grammersthon::HandlerFilter> {
+            pub fn info() -> ::std::vec::Vec<::grammersthon::HandlerFilter> {
                 ::std::vec![#(#filters_code),*]
             }
         }
@@ -153,7 +153,7 @@ fn from_args_unnamed_fields(name: &Ident, fields: FieldsUnnamed) -> (usize, proc
     let fields = fields.unnamed.iter().enumerate().map(|(i, f)| {
         let ty = &f.ty;
         // Check for #[rest] attribute
-        let rest_attr = f.attrs.iter().any(|a| a.path.get_ident().map(|i| i.to_string().as_str() == "rest").unwrap_or(false));
+        let rest_attr = f.attrs.iter().any(|a| a.path().get_ident().map(|i| i.to_string().as_str() == "rest").unwrap_or(false));
         // Last field use rest
         if i == (count - 1) && rest_attr {
             count -= 1;
@@ -173,7 +173,7 @@ fn from_args_named_fields(name: &Ident, fields: FieldsNamed) -> (usize, proc_mac
         let ty = &f.ty;
         let name = f.ident.as_ref().unwrap();
         // Check for #[rest] attribute
-        let rest_attr = f.attrs.iter().any(|a| a.path.get_ident().map(|i| i.to_string().as_str() == "rest").unwrap_or(false));
+        let rest_attr = f.attrs.iter().any(|a| a.path().get_ident().map(|i| i.to_string().as_str() == "rest").unwrap_or(false));
         // Last field use rest
         if i == (count - 1) && rest_attr {
             count -= 1;
@@ -189,7 +189,7 @@ fn from_args_named_fields(name: &Ident, fields: FieldsNamed) -> (usize, proc_mac
 // Parse enum
 fn from_args_enum(name: &Ident, e: &DataEnum, attributes: &Vec<Attribute>) -> proc_macro2::TokenStream {
     // Check if ignore case enabled
-    let ignore_case = attributes.iter().any(|a| a.path.get_ident().map(|i| &i.to_string() == "ignore_case").unwrap_or(false));
+    let ignore_case = attributes.iter().any(|a| a.path().get_ident().map(|i| &i.to_string() == "ignore_case").unwrap_or(false));
     
     // Parse variants
     let options = e.variants.iter().map(|v| {
