@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 regex = "1.9"
-crossterm = "0.26"
+crossterm = "0.28"
 trait-bound-typemap = "0.3"
 
 tokio = { version = "1.29", features = ["full"] }
@@ -27,4 +27,3 @@ pretty_env_logger = "0.5"
 default = ["markdown"]
 markdown = ["grammers-client/markdown"]
 html = ["grammers-client/html"]
-unstable-raw = ["grammers-client/unstable_raw"]

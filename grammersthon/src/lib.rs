@@ -67,23 +67,30 @@ impl Grammersthon {
     pub async fn start_event_loop(&mut self) -> Result<(), GrammersthonError> {
         info!("Starting event loop");
         loop {
-            while let Some(update) = self.client.next_update().await? {
-                // Run handler in own task
-                let handlers = self.handlers.clone();
-                let client = self.client.clone();
-                let me = self.me.clone();
-                let data = self.data.clone();
-                tokio::task::spawn(async move {
-                    match handlers.handle(client.clone(), update.clone(), me, data).await {
-                        Ok(_) => (),
-                        Err(e) => {
-                            if let Err(e) = (*handlers.error)(e, client, update).await {
-                                error!("Error occured while running error handler: {e}");
-                            }
-                        },
-                    }
-                });
-            }
+            let update = match self.client.next_update().await {
+                Ok(update) => update,
+                Err(e) => {
+                    error!("Grammers getting update error: {e}");
+                    continue;
+                }
+            };
+
+            // Run handler in own task
+            let handlers = self.handlers.clone();
+            let client = self.client.clone();
+            let me = self.me.clone();
+            let data = self.data.clone();
+            tokio::task::spawn(async move {
+                match handlers.handle(client.clone(), update.clone(), me, data).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        if let Err(e) = (*handlers.error)(e, client, update).await {
+                            error!("Error occured while running error handler: {e}");
+                        }
+                    },
+                }
+            });
         }
+        
     }
 }
